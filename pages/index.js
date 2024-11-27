@@ -1,3 +1,33 @@
+/**
+ * Metacrafters ATM - Frontend Component
+ * @author Franz Domingo
+ * 
+ * A React component that provides a user interface for interacting with an ETH-based ATM smart contract.
+ * Features include:
+ * - Metamask wallet connection
+ * - ETH deposits and withdrawals
+ * - Transaction history tracking
+ * - Gas fee estimation
+ * - Interest calculation
+ * 
+ * Key Functions:
+ * - deposit(): Handles ETH deposits with gas estimation
+ * - withdraw(): Processes ETH withdrawals with gas estimation
+ * - calculateInterest(): Computes interest based on contract rate
+ * - updateData(): Refreshes balance, interest rate and transaction history
+ * 
+ * UI Components:
+ * - Wallet connection button
+ * - Balance display
+ * - Deposit/Withdraw forms 
+ * - Transaction history table
+ * 
+ * Requirements:
+ * - Metamask wallet
+ * - ETH for gas fees
+ * - Connection to ETH network
+ */
+
 import {useState, useEffect} from "react";
 import {ethers} from "ethers";
 import atm_abi from "../artifacts/contracts/Assessment.sol/Assessment.json";
@@ -12,11 +42,11 @@ export default function HomePage() {
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [transactions, setTransactions] = useState([]);
   const [gasPrice, setGasPrice] = useState(undefined);
-  const [transactionFees, setTransactionFees] = useState({});
 
   const contractAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
   const atmABI = atm_abi.abi;
 
+  // Add getGasPrice function
   const getGasPrice = async() => {
     if (ethWallet) {
       const provider = new ethers.providers.Web3Provider(ethWallet);
@@ -37,25 +67,6 @@ export default function HomePage() {
       return "0";
     }
   }
-
-  // Update transaction fees for all transactions
-  const updateTransactionFees = async () => {
-    const fees = {};
-    for (let tx of transactions) {
-      const fee = tx.txType === "Interest" ? 
-        await estimateTransactionFee("calculateInterest", []) :
-        await estimateTransactionFee(tx.txType.toLowerCase(), tx.amount);
-      fees[tx.timestamp.toString()] = fee;
-    }
-    setTransactionFees(fees);
-  };
-
-  // Update fees when transactions or gas price changes
-  useEffect(() => {
-    if (transactions.length > 0 && atm) {
-      updateTransactionFees();
-    }
-  }, [transactions, gasPrice]);
 
   const getWallet = async() => {
     if (window.ethereum) {
@@ -131,7 +142,7 @@ export default function HomePage() {
     if (atm && depositAmount) {
       try {
         const amount = ethers.utils.parseEther(depositAmount);
-        const estimatedFee = await estimateTransactionFee("deposit", amount);
+        const estimatedFee = await estimateTransactionFee("deposit", [amount]);
         if (window.confirm(`Estimated transaction fee: ${estimatedFee} ETH. Continue?`)) {
           let tx = await atm.deposit(amount);
           await tx.wait();
@@ -149,7 +160,7 @@ export default function HomePage() {
     if (atm && withdrawAmount) {
       try {
         const amount = ethers.utils.parseEther(withdrawAmount);
-        const estimatedFee = await estimateTransactionFee("withdraw", amount);
+        const estimatedFee = await estimateTransactionFee("withdraw", [amount]);
         if (window.confirm(`Estimated transaction fee: ${estimatedFee} ETH. Continue?`)) {
           let tx = await atm.withdraw(amount);
           await tx.wait();
@@ -164,7 +175,15 @@ export default function HomePage() {
   }
 
   const formatDate = (timestamp) => {
-    return new Date(timestamp * 1000).toLocaleString();
+    return new Date(timestamp * 1000).toLocaleString('en-US', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true
+    });
   }
 
   const initUser = () => {
@@ -197,7 +216,7 @@ export default function HomePage() {
       <div className="max-w-4xl mx-auto p-6">
         <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
           <p className="text-sm text-gray-600 mb-2">Account: {account && `${account[0].substring(0, 6)}...${account[0].substring(38)}`}</p>
-          <p className="text-2xl font-bold mb-2">Balance: {balance} ETH</p>
+          <p className="text-2xl font-bold mb-2">Balance: {Number(balance).toFixed(0)} ETH</p>
           <p className="text-sm text-gray-600 mb-4">Interest Rate: {interestRate/100}%</p>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
@@ -233,13 +252,6 @@ export default function HomePage() {
               </button>
             </div>
           </div>
-          
-          <button 
-            onClick={calculateInterest}
-            className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-lg transition-colors"
-          >
-            Calculate Interest
-          </button>
         </div>
 
         <div className="bg-white rounded-lg shadow-lg p-6">
@@ -257,16 +269,27 @@ export default function HomePage() {
               </thead>
               <tbody>
                 {transactions.map((tx, index) => {
+                  // Format amount with space before ETH
+                  const formattedAmount = `${Number(ethers.utils.formatEther(tx.amount)).toFixed(0)} ETH`;
+                  
+                  // Format balance with space before ETH
+                  const formattedBalance = `${Number(ethers.utils.formatEther(tx.balance)).toFixed(0)} ETH`;
+                  
+                  // Format gas fee with extended decimals
+                  const formattedGasFee = `${Number(ethers.utils.formatEther(gasPrice ? gasPrice.mul(21000) : 0)).toFixed(18)} ETH`;
+                  
+                  // Display amount with interest percentage if it's an interest transaction
                   const displayAmount = tx.txType === "Interest" ? 
-                    `${ethers.utils.formatEther(tx.amount)} ETH (${((Number(ethers.utils.formatEther(tx.amount)) / Number(ethers.utils.formatEther(tx.balance))) * 100).toFixed(2)}%)` : 
-                    `${ethers.utils.formatEther(tx.amount)} ETH`;
+                    `${formattedAmount} (${((Number(ethers.utils.formatEther(tx.amount)) / Number(ethers.utils.formatEther(tx.balance))) * 100).toFixed(2)}%)` : 
+                    formattedAmount;
+
                   return (
-                    <tr key={index} className="border-b">
-                      <td className="py-2">{tx.txType}</td>
-                      <td className="py-2">{displayAmount}</td>
-                      <td className="py-2">{ethers.utils.formatEther(tx.balance)} ETH</td>
-                      <td className="py-2">{transactionFees[tx.timestamp.toString()] || '0'} ETH</td>
-                      <td className="py-2">{formatDate(tx.timestamp.toString())}</td>
+                    <tr key={index} className="border-b hover:bg-gray-50">
+                      <td className="py-3 px-4">{tx.txType}</td>
+                      <td className="py-3 px-4">{displayAmount}</td>
+                      <td className="py-3 px-4">{formattedBalance}</td>
+                      <td className="py-3 px-4">{formattedGasFee}</td>
+                      <td className="py-3 px-4">{formatDate(tx.timestamp.toString())}</td>
                     </tr>
                   );
                 })}
